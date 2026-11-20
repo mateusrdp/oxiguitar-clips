@@ -419,7 +419,7 @@ fn add(left: &mut [f32], right: &mut [f32], out: &[f32], gain: impl Fn(usize) ->
     for (i, ((l, r), f)) in left
         .iter_mut()
         .zip(right.iter_mut())
-        .zip(out.chunks_exact(2))
+        .zip(out.as_chunks::<2>().0)
         .enumerate()
     {
         let g = gain(i);
