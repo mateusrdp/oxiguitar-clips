@@ -37,7 +37,7 @@ rubato = "5.1.0"
 timestretch = { version = "0.16.0", default-features = false }
 # The plugin's own file dialog (MIT): the system's, through the desktop
 # portal on Linux, as OxiGuitar's own dialogs are.
-rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 # A path relative to the score's folder (MIT OR Apache-2.0).
 pathdiff = "0.2.3"
 
