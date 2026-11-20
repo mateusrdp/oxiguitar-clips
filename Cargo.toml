@@ -1,0 +1,75 @@
+[package]
+name = "oxiguitar-clips-plugin"
+description = "The OxiGuitar audio clips plugin: audio files on rests, engraved for as long as they last and played along with the score."
+version = "0.1.0"
+edition = "2024"
+# Rust from rustup, raised only when something needs it (CONTRIBUTING.md).
+rust-version = "1.99"
+license = "GPL-3.0-or-later"
+authors = ["Mateus Rocha de Paula", "The OxiGuitar contributors"]
+repository = "https://github.com/mateusrdp/oxiguitar-clips"
+homepage = "https://github.com/mateusrdp/oxiguitar-clips"
+publish = false
+
+[lib]
+# An ordinary library for tests, and clips.oxp when built with
+# `--features oxp --crate-type cdylib` (build-oxp.sh).
+crate-type = ["lib"]
+
+[features]
+oxp = []
+
+[dependencies]
+# The SDK, from OxiGuitar's repository at the commit of interface 1.13
+# (mateusrdp/oxiguitar#321: drawings that run on in time, effects off the
+# chord voice, the score's file), until a release tags it. Nothing of
+# OxiGuitar's is on crates.io.
+oxiguitar-plugin = { git = "https://github.com/mateusrdp/oxiguitar", tag = "v0.21.4" }
+# Reading the files oxiguitar-export writes: WAV, FLAC and MP3 through
+# Symphonia (MPL-2.0), Opus through opus-pure (BSD-3-Clause), the pure-Rust
+# Opus codec the export plugin writes with.
+symphonia = { version = "0.6.1", default-features = false, features = ["wav", "pcm", "flac", "mp3"] }
+opus-pure = "0.2.3"
+# A clip at the sound's rate: resampled once, off the audio thread (MIT).
+rubato = "5.1.0"
+# The practice speed with the pitch kept (MIT): its streaming session runs
+# on the audio thread without allocating or locking.
+timestretch = { version = "0.16.0", default-features = false }
+# The plugin's own file dialog (MIT): the system's, through the desktop
+# portal on Linux, as OxiGuitar's own dialogs are.
+rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
+# A path relative to the score's folder (MIT OR Apache-2.0).
+pathdiff = "0.2.3"
+
+[dev-dependencies]
+# Test files in the formats oxiguitar-export writes, made with its own
+# encoders (src/decode.rs's tests).
+rusty_flac = "0.5.1"
+rusty_mp3 = "1.0.6"
+# The contract suite and the real-time checks (tests/contract.rs) run the
+# built .oxp file through OxiGuitar's own plugin host.
+oxiguitar-plugin-test = { git = "https://github.com/mateusrdp/oxiguitar", tag = "v0.21.4" }
+oxiguitar-host = { git = "https://github.com/mateusrdp/oxiguitar", tag = "v0.21.4" }
+
+# Plugins deny `unsafe` rather than forbid it: `export_plugin!` allows it on
+# the two attributes it generates, and nowhere else.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unreachable_pub = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+
+[profile.release]
+# Small files. Keep the default `panic = "unwind"`: a panic is then caught
+# and reported as an error instead of closing OxiGuitar.
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+# Its own workspace, wherever the folder is copied.
+[workspace]
