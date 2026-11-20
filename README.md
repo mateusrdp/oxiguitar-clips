@@ -11,7 +11,7 @@ multitrack recorder.
 - **The Clip tool** (the palette's Plugins section, or Plugins → Audio
   Clip…): with the caret on a rest, choose a file in the system's file
   dialog. WAV, FLAC, MP3 and Opus, the formats the
-  [audio export plugin](https://github.com/mateusrdp/oxiguitar-export)
+  audio export plugin
   writes. Click a clip on the page to change or remove it.
 - **Its path**, chosen in the dialog and remembered: **relative to the
   score**, to move or share a folder holding the score, its `.oxg` file and
@@ -32,13 +32,17 @@ score format holds it. The track needs an instrument (the MIDI plugin plays
 every track) for its clips to sound. A missing file is named in the footer
 when the song is played or exported, and its track plays without it.
 
+## Manual
+
+The manual is at <https://mateusrdp.github.io/oxiguitar-clips/>. Its source is in [docs/manual](docs/manual). It covers what the plugin is for, how it works, what it needs and how to install it.
+
 ## Installing
 
 Released builds come with OxiGuitar's packages and Flatpak repository
 (`oxiguitar-clips`, `io.github.mateusrdp.OxiGuitar.Plugin.clips`), or as
 `clips.oxp` files on this repository's releases: see
-[Installing plugins](https://mateusrdp.github.io/oxiguitar/manual/installing.html).
-It needs OxiGuitar with plugin interface 1.13.
+the [manual's install page](https://mateusrdp.github.io/oxiguitar-clips/install.html).
+It needs OxiGuitar 0.21.4 or later (plugin interface 1.13).
 
 ## Building
 
