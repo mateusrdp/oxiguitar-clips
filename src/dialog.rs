@@ -1,0 +1,507 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Mateus Rocha de Paula and the OxiGuitar contributors
+
+//! The palette's Audio Clip tool and the dialog it opens (interface 1.8:
+//! palette tools and dialogs are a plugin's own). The tool, or a click on
+//! a clip on the page, opens the dialog for the rest at the caret: choose
+//! a file (in the system's file dialog, the plugin's own), keep its path
+//! relative to the score or absolute, or remove the clip. OK writes it on
+//! the rest as one change the user can undo; Cancel forgets it.
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+use oxiguitar_plugin::score::BeatKind;
+use oxiguitar_plugin::score2::{Beat2, BeatExt, Score2};
+use oxiguitar_plugin::serde_json::Value;
+use oxiguitar_plugin::{Error, Host, Row, Selection2, Tab, TabContent, TabEvent, Tool, Widget};
+
+use crate::clip::Clip;
+use crate::decode;
+
+/// The dialog's id in the manifest.
+pub const DIALOG: &str = "clip";
+
+/// The choice of how a path is kept, as the dialog lists it.
+const PATHS: [&str; 2] = ["Relative to the score", "Absolute"];
+
+/// A beat's place in the score: track, staff, bar, voice, beat.
+pub type Place = [usize; 5];
+
+/// What the open dialog is for and what it holds.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Editing {
+    place: Place,
+    /// The clip the rest has.
+    had: Option<Clip>,
+    /// A file chosen since, and how long it lasts.
+    chosen: Option<(PathBuf, f64)>,
+    /// The clip is to go.
+    removed: bool,
+    /// Keep the path relative to the score.
+    relative: bool,
+    /// A sentence about the last thing that went wrong.
+    problem: Option<String>,
+}
+
+/// What the tool, the drawings' clicks and the dialog share.
+#[derive(Debug, Default)]
+pub struct Shared {
+    editing: Mutex<Option<Editing>>,
+}
+
+impl Shared {
+    fn editing(&self) -> MutexGuard<'_, Option<Editing>> {
+        self.editing.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// The beat at `place`.
+fn beat_at(score: &Score2, [t, s, bar, v, b]: Place) -> Option<&Beat2> {
+    score
+        .tracks
+        .get(t)?
+        .staves
+        .get(s)?
+        .bars
+        .get(bar)?
+        .voices
+        .get(v)?
+        .beats
+        .get(b)
+}
+
+fn beat_at_mut(score: &mut Score2, [t, s, bar, v, b]: Place) -> Option<&mut Beat2> {
+    score
+        .tracks
+        .get_mut(t)?
+        .staves
+        .get_mut(s)?
+        .bars
+        .get_mut(bar)?
+        .voices
+        .get_mut(v)?
+        .beats
+        .get_mut(b)
+}
+
+/// The clip a beat has.
+pub fn clip_of(beat: &Beat2) -> Option<Clip> {
+    beat.ext.iter().find_map(|e| match e {
+        BeatExt::Plugin { plugin, data } if plugin == crate::ID => Clip::from_text(data),
+        _ => None,
+    })
+}
+
+/// Gives a beat a clip, or none; whatever else it has stays.
+pub fn set_clip(beat: &mut Beat2, clip: Option<&Clip>) {
+    beat.ext
+        .retain(|e| !matches!(e, BeatExt::Plugin { plugin, .. } if plugin == crate::ID));
+    if let Some(c) = clip {
+        beat.ext.push(BeatExt::Plugin {
+            plugin: crate::ID.into(),
+            data: c.to_text(),
+        });
+    }
+}
+
+/// The beat a selection starts at: the caret's, or the first selected.
+fn first_place(score: &Score2, selection: &Selection2) -> Option<Place> {
+    let i = |v: u32| v as usize;
+    match *selection {
+        Selection2::Caret {
+            track,
+            staff,
+            voice,
+            bar,
+            beat,
+            ..
+        } => Some([i(track), i(staff), i(bar), i(voice), i(beat)]),
+        Selection2::Beats {
+            track,
+            staff,
+            voice,
+            from,
+            ..
+        } => Some([i(track), i(staff), i(from.bar), i(voice), i(from.beat)]),
+        Selection2::Bars {
+            first_track,
+            first_bar,
+            ..
+        } => (beat_at(score, [i(first_track), 0, i(first_bar), 0, 0]).is_some()).then_some([
+            i(first_track),
+            0,
+            i(first_bar),
+            0,
+            0,
+        ]),
+    }
+}
+
+/// A clip starts on a rest: a beat that isn't a grace beat and has no
+/// notes. One already there is opened wherever it is.
+fn takes_a_clip(beat: &Beat2) -> bool {
+    beat.kind == BeatKind::Rest && beat.grace.is_none()
+}
+
+/// The folder of the open score, once it is saved.
+fn score_folder(host: &Host) -> Option<PathBuf> {
+    host.score_file()
+        .ok()
+        .flatten()
+        .and_then(|f| f.parent().map(Path::to_path_buf))
+}
+
+/// Whether paths are kept relative to the score: the last choice, which
+/// the plugin's settings keep; relative at first.
+fn relative_by_default(host: &Host) -> bool {
+    host.settings()
+        .ok()
+        .and_then(|s| {
+            s.get("paths")
+                .and_then(Value::as_str)
+                .map(|p| p != "absolute")
+        })
+        .unwrap_or(true)
+}
+
+/// Opens the dialog for the beat the caret is on.
+pub fn open(host: &Host, shared: &Shared) -> Result<String, Error> {
+    let Some((_, score)) = host.score2()? else {
+        return Ok("No score is open.".into());
+    };
+    let Some(place) = host.selection()?.and_then(|s| first_place(&score, &s)) else {
+        return Ok("Put the caret on a rest: an audio clip starts on one.".into());
+    };
+    let Some(beat) = beat_at(&score, place) else {
+        return Ok("Put the caret on a rest: an audio clip starts on one.".into());
+    };
+    let had = clip_of(beat);
+    if had.is_none() && !takes_a_clip(beat) {
+        return Ok("Put the caret on a rest: an audio clip starts on one.".into());
+    }
+    let relative = had
+        .as_ref()
+        .map_or_else(|| relative_by_default(host), |c| c.relative);
+    *shared.editing() = Some(Editing {
+        place,
+        had,
+        relative,
+        ..Editing::default()
+    });
+    if let Err(e) = host.open_dialog(DIALOG) {
+        *shared.editing() = None;
+        return Err(e);
+    }
+    Ok(String::new())
+}
+
+/// The palette's Audio Clip tool.
+#[derive(Debug)]
+pub struct ClipTool {
+    /// The host.
+    pub host: Host,
+    /// What it shares with the dialog.
+    pub shared: Arc<Shared>,
+}
+
+impl Tool for ClipTool {
+    fn run(&self) -> Result<String, Error> {
+        open(&self.host, &self.shared)
+    }
+}
+
+/// The Audio Clip dialog.
+#[derive(Debug)]
+pub struct Dialog {
+    /// The host.
+    pub host: Host,
+    /// What it shares with the tool.
+    pub shared: Arc<Shared>,
+}
+
+fn label(text: &str, muted: bool) -> Widget {
+    Widget::Label {
+        text: text.into(),
+        muted,
+    }
+}
+
+fn row(widgets: Vec<Widget>) -> Row {
+    Row { widgets }
+}
+
+/// A length for the dialog: "1:02.5" or "10.4 s".
+fn length(seconds: f64) -> String {
+    if seconds >= 60.0 {
+        let m = (seconds / 60.0).floor();
+        format!("{m}:{:04.1}", seconds - 60.0 * m)
+    } else {
+        format!("{seconds:.1} s")
+    }
+}
+
+impl Tab for Dialog {
+    fn content(&self) -> TabContent {
+        let editing = self.shared.editing();
+        let Some(e) = editing.as_ref() else {
+            return TabContent {
+                rows: vec![row(vec![label(
+                    "Pick the Audio Clip tool in the palette, on a rest.",
+                    true,
+                )])],
+            };
+        };
+        let (name, seconds) = match (&e.chosen, &e.had, e.removed) {
+            (_, _, true) => (None, None),
+            (Some((file, s)), _, _) => (
+                file.file_name().map(|n| n.to_string_lossy().into_owned()),
+                Some(*s),
+            ),
+            (None, Some(c), _) => (Some(c.name().to_owned()), Some(c.seconds)),
+            (None, None, _) => (None, None),
+        };
+        let has = name.is_some();
+        let mut rows = vec![
+            row(vec![
+                label("File", false),
+                label(name.as_deref().unwrap_or("None"), !has),
+            ]),
+            row(vec![
+                Widget::Button {
+                    id: "choose".into(),
+                    text: "Choose File…".into(),
+                    enabled: true,
+                },
+                Widget::Button {
+                    id: "remove".into(),
+                    text: "Remove Clip".into(),
+                    enabled: has,
+                },
+            ]),
+        ];
+        if let Some(s) = seconds {
+            rows.push(row(vec![label("Length", false), label(&length(s), true)]));
+        }
+        rows.push(row(vec![
+            label("Path", false),
+            Widget::Choice {
+                id: "paths".into(),
+                options: PATHS.iter().map(|p| (*p).to_owned()).collect(),
+                selected: u32::from(!e.relative),
+                enabled: true,
+            },
+        ]));
+        rows.push(row(vec![label(
+            if e.relative {
+                "Kept from the score's folder: move or share that folder with the score and its .oxg file."
+            } else {
+                "Kept as it is: the score can move, the file stays where it is."
+            },
+            true,
+        )]));
+        if let Some(p) = &e.problem {
+            rows.push(row(vec![label(p, false)]));
+        }
+        rows.push(row(vec![label(
+            "It plays from this rest for as long as it lasts, through the track's volume, pan, mute and solo.",
+            true,
+        )]));
+        TabContent { rows }
+    }
+
+    fn on(&self, widget: &str, event: TabEvent) -> Result<(), Error> {
+        match (widget, event) {
+            ("choose", TabEvent::Clicked) => self.choose(),
+            ("remove", TabEvent::Clicked) => {
+                if let Some(e) = self.shared.editing().as_mut() {
+                    e.chosen = None;
+                    e.removed = true;
+                    e.problem = None;
+                }
+            }
+            ("paths", TabEvent::Chosen(i)) => {
+                if let Some(e) = self.shared.editing().as_mut() {
+                    e.relative = i == 0;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn closed(&self, ok: bool) -> Result<(), Error> {
+        let Some(e) = self.shared.editing().take() else {
+            return Ok(());
+        };
+        if !ok {
+            return Ok(());
+        }
+        let _ = self.host.set_settings(&{
+            let mut s = self.host.settings().unwrap_or_default();
+            s.insert(
+                "paths".into(),
+                if e.relative { "relative" } else { "absolute" }.into(),
+            );
+            s
+        });
+        let folder = score_folder(&self.host);
+        let (clip, said) = match (&e.chosen, &e.had, e.removed) {
+            (_, _, true) => (None, None),
+            (Some((file, seconds)), _, _) => {
+                let (clip, kept) = Clip::of(file, *seconds, e.relative, folder.as_deref());
+                (Some(clip), (!kept).then_some(()))
+            }
+            (None, Some(had), _) if had.relative != e.relative => {
+                match had.file(folder.as_deref()) {
+                    Some(file) => {
+                        let (clip, kept) =
+                            Clip::of(&file, had.seconds, e.relative, folder.as_deref());
+                        (Some(clip), (!kept).then_some(()))
+                    }
+                    None => (Some(had.clone()), Some(())),
+                }
+            }
+            // Nothing changed.
+            _ => return Ok(()),
+        };
+        if said.is_some() {
+            self.host.notify(
+                oxiguitar_plugin::Level::Warning,
+                "The score isn't saved yet: the clip's path is kept absolute. Save the score, then choose the path again to keep it relative.",
+            );
+        }
+        let Some((revision, mut score)) = self.host.score2()? else {
+            return Ok(());
+        };
+        let Some(beat) = beat_at_mut(&mut score, e.place) else {
+            return Err(Error::new(
+                oxiguitar_plugin::ErrorKind::Failed,
+                "the rest the dialog was opened for is no longer there",
+            ));
+        };
+        set_clip(beat, clip.as_ref());
+        let name = if clip.is_some() {
+            "Audio Clip"
+        } else {
+            "Remove Audio Clip"
+        };
+        self.host.apply(revision, name, score)
+    }
+}
+
+impl Dialog {
+    /// The system's file dialog, then the file read to know its length (and
+    /// that it can be played).
+    fn choose(&self) {
+        let folder = score_folder(&self.host);
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Choose an Audio File")
+            .add_filter("Audio (WAV, FLAC, MP3, Opus)", &decode::EXTENSIONS);
+        if let Some(f) = &folder {
+            dialog = dialog.set_directory(f);
+        }
+        let Some(file) = dialog.pick_file() else {
+            return;
+        };
+        let result = decode::file(&file);
+        let mut editing = self.shared.editing();
+        let Some(e) = editing.as_mut() else {
+            return;
+        };
+        match result {
+            Ok(audio) => {
+                e.chosen = Some((file, audio.seconds()));
+                e.removed = false;
+                e.problem = None;
+            }
+            Err(why) => {
+                let name = file
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                e.problem = Some(format!("{name} {why}."));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxiguitar_plugin::score::{BeatEffects, Duration, NoteValue};
+    use oxiguitar_plugin::score2::{Bar2, Staff2, Track2, Voice2};
+
+    fn beat(kind: BeatKind) -> Beat2 {
+        Beat2 {
+            kind,
+            duration: Duration {
+                value: NoteValue::Quarter,
+                dots: 0,
+                tuplets: Vec::new(),
+            },
+            notes: Vec::new(),
+            grace: None,
+            effects: BeatEffects::default(),
+            chord: None,
+            text: String::new(),
+            ext: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_clip_goes_on_a_beat_and_comes_off_leaving_the_rest() {
+        let mut b = beat(BeatKind::Rest);
+        b.ext.push(BeatExt::Plugin {
+            plugin: "someone.else".into(),
+            data: "{}".into(),
+        });
+        assert!(takes_a_clip(&b) && clip_of(&b).is_none());
+        let c = Clip {
+            path: "a.wav".into(),
+            relative: true,
+            seconds: 2.0,
+        };
+        set_clip(&mut b, Some(&c));
+        assert_eq!(clip_of(&b), Some(c.clone()));
+        set_clip(&mut b, Some(&c));
+        assert_eq!(b.ext.len(), 2, "one clip a beat");
+        set_clip(&mut b, None);
+        assert_eq!(b.ext.len(), 1);
+        assert!(!takes_a_clip(&beat(BeatKind::Notes)));
+    }
+
+    #[test]
+    fn the_caret_names_its_beat() {
+        let score = Score2 {
+            tracks: vec![Track2 {
+                staves: vec![Staff2 {
+                    bars: vec![Bar2 {
+                        clef: oxiguitar_plugin::score::Clef::Treble,
+                        voices: vec![Voice2 {
+                            beats: vec![beat(BeatKind::Notes), beat(BeatKind::Rest)],
+                            ..Voice2::default()
+                        }],
+                        ext: Vec::new(),
+                    }],
+                    ..Staff2::default()
+                }],
+                ..Track2::default()
+            }],
+            ..Score2::default()
+        };
+        let caret = Selection2::Caret {
+            track: 0,
+            staff: 0,
+            voice: 0,
+            bar: 0,
+            beat: 1,
+            string: 1,
+        };
+        let place = first_place(&score, &caret).unwrap();
+        assert_eq!(place, [0, 0, 0, 0, 1]);
+        assert!(takes_a_clip(beat_at(&score, place).unwrap()));
+        assert_eq!(length(10.42), "10.4 s");
+        assert_eq!(length(62.5), "1:02.5");
+    }
+}
