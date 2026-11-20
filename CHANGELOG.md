@@ -4,6 +4,8 @@ All notable changes to the audio clips plugin. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-20
+
 ### Added
 
 - **Audio clips** (mateusrdp/oxiguitar#240): the palette's **Clip** tool (Plugins section; also Plugins → Audio Clip…) gives the rest at the caret an audio file, chosen in the system's file dialog: WAV, FLAC, MP3 or Opus, the formats the audio export plugin writes. The file's path is kept relative to the score's folder (to move or share the folder whole) or absolute (the score can move, the file stays), as chosen in the dialog; the choice is remembered.

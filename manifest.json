@@ -2,7 +2,7 @@
   "interface": "1.13",
   "id": "oxiguitar.clips",
   "name": "Audio clips",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Audio files played along with the score: a clip on a rest, engraved from that beat for as long as it lasts.",
   "authors": ["Mateus Rocha de Paula", "The OxiGuitar contributors"],
   "license": "GPL-3.0-or-later",
