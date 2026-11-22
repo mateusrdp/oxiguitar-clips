@@ -62,6 +62,14 @@ practice speed with the pitch kept; MIT),
 [pathdiff](https://crates.io/crates/pathdiff) (relative paths; MIT OR
 Apache-2.0), each used as published.
 
+## Testing
+
+Every test, with one command (the manual's Testing page says more, and how to report a failure):
+
+```sh
+python3 scripts/test-all.py
+```
+
 ## Licence
 
 GPL-3.0-or-later. See LICENSE.

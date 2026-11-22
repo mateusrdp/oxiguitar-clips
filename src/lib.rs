@@ -176,3 +176,105 @@ impl Processor for Playing {
 }
 
 oxiguitar_plugin::export_plugin!(ClipsPlugin);
+
+#[cfg(test)]
+mod missing_files {
+    use std::sync::Mutex;
+
+    use oxiguitar_plugin::api::message::{HostAnswer, HostRequest, PreparedTrack, TrackInfo};
+    use oxiguitar_plugin::{HostServices, InstrumentClass};
+
+    use super::*;
+
+    /// A host that keeps what it is told, with a score that was never saved.
+    #[derive(Default)]
+    struct Told(Mutex<Vec<String>>);
+
+    impl HostServices for Told {
+        fn request(&self, request: HostRequest<'_>) -> Result<HostAnswer<'static>, Error> {
+            match request {
+                HostRequest::Notify { level, text } => {
+                    assert!(matches!(level, Level::Warning), "{text}");
+                    self.0.lock().unwrap().push(text.to_string());
+                    Ok(HostAnswer::Done)
+                }
+                HostRequest::ScoreFile => Ok(HostAnswer::ScoreFile(None)),
+                _ => Ok(HostAnswer::Done),
+            }
+        }
+    }
+
+    fn beat(start: f64, clip: &clip::Clip) -> PlayedBeat {
+        PlayedBeat {
+            start,
+            end: start + 0.5,
+            staff: 0,
+            bar: 0,
+            voice: 0,
+            beat: 0,
+            ext: vec![BeatExt::Plugin {
+                plugin: ID.into(),
+                data: clip.to_text(),
+            }],
+        }
+    }
+
+    /// A clip whose file is gone, and one kept relative to a score that
+    /// was never saved, are named once in the footer, and the track plays
+    /// on without them: silence where they were.
+    #[test]
+    fn a_missing_file_is_named_and_the_track_plays_without_it() {
+        let told = Arc::new(Told::default());
+        let plugin = ClipsPlugin::start(Host::new(told.clone())).unwrap();
+        let gone = clip::Clip {
+            path: std::env::temp_dir()
+                .join("oxiguitar-clips-no-such-file.wav")
+                .to_string_lossy()
+                .into_owned(),
+            relative: false,
+            seconds: 1.0,
+        };
+        let unsaved = clip::Clip {
+            path: "take.wav".into(),
+            relative: true,
+            seconds: 1.0,
+        };
+        let prepare = PrepareEffect {
+            effect: "clips".into(),
+            rate: 48_000,
+            frames: 256,
+            track: PreparedTrack {
+                info: TrackInfo {
+                    index: 0,
+                    name: "Lead".into(),
+                    class: InstrumentClass::Fretted,
+                },
+                program: 27,
+                percussion: false,
+                tuning: vec![64, 59, 55, 50, 45, 40],
+                capo: 0,
+                settings: String::new(),
+            },
+        };
+        let beats = [beat(0.0, &gone), beat(1.0, &gone), beat(2.0, &unsaved)];
+        let mut playing = plugin.prepare_following(&prepare, &beats).unwrap();
+        let said = told.0.lock().unwrap().clone();
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].starts_with("Lead plays without its clip"),
+            "{said:?}"
+        );
+        assert!(
+            said[0].contains("oxiguitar-clips-no-such-file.wav"),
+            "{said:?}"
+        );
+        assert!(
+            said[0].contains("take.wav is kept relative to the score"),
+            "{said:?}"
+        );
+        assert_eq!(said[0].matches("no-such-file").count(), 1, "named once");
+        let (mut left, mut right) = (vec![0.0f32; 256], vec![0.0f32; 256]);
+        playing.process_at(&mut left, &mut right, 0.0, 1.0 / 48_000.0);
+        assert!(left.iter().chain(&right).all(|s| *s == 0.0));
+    }
+}
