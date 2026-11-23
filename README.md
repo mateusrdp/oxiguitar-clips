@@ -6,10 +6,11 @@ and it plays from that beat for as long as it lasts. For an intro, a
 sample, a backing part or a placeholder for a part not written yet: not a
 multitrack recorder.
 
+In plain words: everything else in OxiGuitar is notes that a plugin turns into sound. A clip is a recording, laid on a rest of the score and played in time with it, kept in tune at practice speeds by time-stretching. The [manual](https://mateusrdp.github.io/oxiguitar-clips/) shows how to add one.
+
 ![A clip on a rest of OxiGuitar's notes-and-rests reference, its line running across the next system to where the clip ends](docs/images/page.png)
 
-- **The Clip tool** (the palette's Plugins section, or Plugins → Audio
-  Clip…): with the caret on a rest, choose a file in the system's file
+- **The Clip tool** (the palette's Plugins section): with the caret on a rest, choose a file in the system's file
   dialog. WAV, FLAC, MP3 and Opus, the formats the
   audio export plugin
   writes. Click a clip on the page to change or remove it.
@@ -69,6 +70,10 @@ Every test, with one command (the manual's Testing page says more, and how to re
 ```sh
 python3 scripts/test-all.py
 ```
+
+## Credits
+
+Decoding by [Symphonia](https://github.com/pdeljanov/Symphonia) (MPL-2.0) and [opus-pure](https://github.com/stephenberry/opus-pure) (BSD-3-Clause), resampling by [Rubato](https://github.com/HEnquist/rubato), time-stretching by [timestretch](https://github.com/robmorgan/timestretch-rs), the file dialog by [rfd](https://github.com/PolyMeilex/rfd) and relative paths by [pathdiff](https://github.com/Manishearth/pathdiff). Built on OxiGuitar's plugin SDK. The manual's [Credits](https://mateusrdp.github.io/oxiguitar-clips/credits.html) page lists every project with its authors and licence. Thank you to all of them.
 
 ## Licence
 
