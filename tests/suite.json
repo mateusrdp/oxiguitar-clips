@@ -1,0 +1,6 @@
+{
+  "repository": "mateusrdp/oxiguitar-clips",
+  "plugins": [
+    {"name": "clips", "package": "oxiguitar-clips-plugin", "library": "oxiguitar_clips_plugin"}
+  ]
+}

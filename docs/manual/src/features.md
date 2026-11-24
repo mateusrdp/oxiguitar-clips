@@ -1,0 +1,18 @@
+# Features and their tests
+
+Everything the clips plugin does, and the tests that check it. The test names are the ones `cargo test` prints. `scripts/test-all.py` fails when a feature here names no test, or names a test that doesn't exist, so a new feature gets its row and its tests in the same pull request (the [Testing](testing.md) page says how to run them).
+
+| Feature | What it does | Tests |
+| --- | --- | --- |
+| A clip on a rest | The dialog puts a clip on the caret's beat, or takes it off, leaving the beat's other data alone. | `dialog::tests::a_clip_goes_on_a_beat_and_comes_off_leaving_the_rest`, `dialog::tests::the_caret_names_its_beat` |
+| WAV, FLAC, MP3 and Opus files | Read whole, at their own rate, as stereo; Opus gapless. A file that isn't sound says so. | `decode::tests::a_wav_file_is_read_as_stereo_at_its_rate`, `decode::tests::a_flac_file_is_read_sample_for_sample`, `decode::tests::an_mp3_file_is_read`, `decode::tests::an_opus_file_is_read_whole_and_gapless`, `decode::tests::what_isnt_a_sound_file_says_so` |
+| An offset | A clip starts a set time after its rest, or before it; typed in seconds or milliseconds, kept with the clip; a clip moved before the song's start is cut there. The line ends where the sound does, and the red warning goes by where it sounds. | `clip::tests::an_offset_is_kept_either_way_and_a_wild_one_isnt`, `dialog::tests::an_offset_is_typed_in_seconds_or_milliseconds`, `missing_files::an_offset_plays_the_clip_later_or_earlier`, `draw::tests::an_offset_moves_where_the_line_ends_and_what_is_red` |
+| Drawn on the page | A speaker and the file's name at the rest, then a line as long as the clip lasts; a long name is cut. | `draw::tests::a_clip_is_its_name_and_a_run_as_long_as_it_lasts`, `draw::tests::a_long_name_is_cut_and_the_box_keeps_the_limits` |
+| Warned in red | A clip that runs into the next one, or past a repeat or a D.C., is drawn in red; it still plays. | `draw::tests::a_clip_into_the_next_or_past_a_repeat_is_laid_in_red` |
+| Plays with its track | From its beat, sample for sample at 100 %; clips that overlap both sound. Through the track's chain, so its mixer settings and exports include it. | `sound::tests::at_100_percent_a_clip_plays_its_samples_from_its_beat`, `sound::tests::clips_that_overlap_both_sound` |
+| From wherever playing starts | A jump into a clip (a start mid-song, a loop) plays from there, faded in; a stop fades out. | `sound::tests::a_jump_into_a_clip_plays_from_there_faded_in_and_a_stop_fades_out` |
+| Practice speeds | At another speed a clip keeps its pitch and follows the score. | `sound::tests::at_another_speed_a_clip_keeps_its_pitch_and_follows_the_score`, `sound::tests::at_half_speed_a_clip_starts_when_its_beat_is_heard` |
+| Kept with the score | Saved in the beat's plugin data; a path relative to the score follows it, an absolute one doesn't. | `clip::tests::a_clip_is_kept_as_text_and_read_back`, `clip::tests::a_relative_path_follows_the_score_and_an_absolute_one_doesnt` |
+| A missing file | Named once in the footer when the song plays or exports, and the track plays without it. | `missing_files::a_missing_file_is_named_and_the_track_plays_without_it` |
+| Real time | Nothing allocated and no system calls on the audio thread, within its time budget. | `contract::the_clips_run_in_real_time`, `realtime::playing_clips_allocates_nothing` |
+| A working plugin file | The `.oxp` file keeps the plugin contract, with this repository's SDK version and with the newest release of OxiGuitar. | `contract::the_plugin_file_keeps_the_contract`, `oxiguitar_plugin_checks::the_manifest_matches_the_plugin`, `stage:contract (latest core)` |

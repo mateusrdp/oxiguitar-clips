@@ -5,7 +5,8 @@
 //! palette tools and dialogs are a plugin's own). The tool, or a click on
 //! a clip on the page, opens the dialog for the rest at the caret: choose
 //! a file (in the system's file dialog, the plugin's own), keep its path
-//! relative to the score or absolute, or remove the clip. OK writes it on
+//! relative to the score or absolute, start it a little later or earlier
+//! than its rest (its offset), or remove the clip. OK writes it on
 //! the rest as one change the user can undo; Cancel forgets it.
 
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ use oxiguitar_plugin::score2::{Beat2, BeatExt, Score2};
 use oxiguitar_plugin::serde_json::Value;
 use oxiguitar_plugin::{Error, Host, Row, Selection2, Tab, TabContent, TabEvent, Tool, Widget};
 
-use crate::clip::Clip;
+use crate::clip::{Clip, OFFSET_MAX};
 use crate::decode;
 
 /// The dialog's id in the manifest.
@@ -40,6 +41,8 @@ struct Editing {
     removed: bool,
     /// Keep the path relative to the score.
     relative: bool,
+    /// Seconds after the rest the clip starts (below zero, before).
+    offset: f64,
     /// A sentence about the last thing that went wrong.
     problem: Option<String>,
 }
@@ -183,10 +186,12 @@ pub fn open(host: &Host, shared: &Shared) -> Result<String, Error> {
     let relative = had
         .as_ref()
         .map_or_else(|| relative_by_default(host), |c| c.relative);
+    let offset = had.as_ref().map_or(0.0, |c| c.offset);
     *shared.editing() = Some(Editing {
         place,
         had,
         relative,
+        offset,
         ..Editing::default()
     });
     if let Err(e) = host.open_dialog(DIALOG) {
@@ -229,6 +234,44 @@ fn label(text: &str, muted: bool) -> Widget {
 
 fn row(widgets: Vec<Widget>) -> Row {
     Row { widgets }
+}
+
+/// The offset typed into the dialog, in seconds: a number of seconds
+/// ("-0.25", "1,5", "2 s") or of milliseconds ("250 ms"), with a sign for
+/// before the rest; empty is none. Kept to the millisecond. `None` when it
+/// isn't one, or is more than an hour either way.
+pub fn parse_offset(text: &str) -> Option<f64> {
+    let t = text.trim().replace(',', ".").replace('\u{2212}', "-");
+    let t = t.to_lowercase();
+    let (number, unit) = if let Some(n) = t.strip_suffix("ms") {
+        (n, 0.001)
+    } else if let Some(n) = t.strip_suffix('s') {
+        (n, 1.0)
+    } else {
+        (t.as_str(), 1.0)
+    };
+    let number = number.trim();
+    if number.is_empty() {
+        return (unit == 1.0 && t.is_empty()).then_some(0.0);
+    }
+    // Digits, a point and a sign only: no "inf", "nan" or exponents.
+    if !number
+        .chars()
+        .all(|c| c.is_ascii_digit() || matches!(c, '.' | '+' | '-'))
+    {
+        return None;
+    }
+    let seconds = (number.parse::<f64>().ok()? * unit * 1000.0).round() / 1000.0;
+    (seconds.is_finite() && seconds.abs() <= OFFSET_MAX).then_some(seconds + 0.0)
+}
+
+/// An offset for the dialog's field: "0 s", "+0.25 s", "-1.5 s".
+pub fn offset_text(seconds: f64) -> String {
+    if seconds == 0.0 {
+        "0 s".into()
+    } else {
+        format!("{seconds:+} s")
+    }
 }
 
 /// A length for the dialog: "1:02.5" or "10.4 s".
@@ -300,6 +343,19 @@ impl Tab for Dialog {
             },
             true,
         )]));
+        rows.push(row(vec![
+            label("Offset", false),
+            Widget::Field {
+                id: "offset".into(),
+                text: offset_text(e.offset),
+                placeholder: "0 s".into(),
+                enabled: has,
+            },
+        ]));
+        rows.push(row(vec![label(
+            "Starts the clip this much after its rest, or before it with a minus: 0.25, -1.5 s, 250 ms. Press Enter to set it.",
+            true,
+        )]));
         if let Some(p) = &e.problem {
             rows.push(row(vec![label(p, false)]));
         }
@@ -318,6 +374,22 @@ impl Tab for Dialog {
                     e.chosen = None;
                     e.removed = true;
                     e.problem = None;
+                }
+            }
+            ("offset", TabEvent::Edited(text)) => {
+                if let Some(e) = self.shared.editing().as_mut() {
+                    match parse_offset(&text) {
+                        Some(offset) => {
+                            e.offset = offset;
+                            e.problem = None;
+                        }
+                        None => {
+                            e.problem = Some(format!(
+                                "\"{}\" isn't an offset: type seconds, like -0.25, or milliseconds, like 250 ms, up to an hour.",
+                                text.trim()
+                            ));
+                        }
+                    }
                 }
             }
             ("paths", TabEvent::Chosen(i)) => {
@@ -362,9 +434,15 @@ impl Tab for Dialog {
                     None => (Some(had.clone()), Some(())),
                 }
             }
+            (None, Some(had), _) if had.offset != e.offset => (Some(had.clone()), None),
             // Nothing changed.
             _ => return Ok(()),
         };
+        // The offset in the dialog, whatever else changed.
+        let clip = clip.map(|c| Clip {
+            offset: e.offset,
+            ..c
+        });
         if said.is_some() {
             self.host.notify(
                 oxiguitar_plugin::Level::Warning,
@@ -461,6 +539,7 @@ mod tests {
             path: "a.wav".into(),
             relative: true,
             seconds: 2.0,
+            offset: 0.0,
         };
         set_clip(&mut b, Some(&c));
         assert_eq!(clip_of(&b), Some(c.clone()));
@@ -503,5 +582,37 @@ mod tests {
         assert!(takes_a_clip(beat_at(&score, place).unwrap()));
         assert_eq!(length(10.42), "10.4 s");
         assert_eq!(length(62.5), "1:02.5");
+    }
+
+    #[test]
+    fn an_offset_is_typed_in_seconds_or_milliseconds() {
+        for (text, seconds) in [
+            ("0.25", 0.25),
+            ("+0.25 s", 0.25),
+            ("-1.5", -1.5),
+            ("-1,5 s", -1.5),
+            ("\u{2212}2", -2.0),
+            ("250 ms", 0.25),
+            ("-40ms", -0.04),
+            ("0.0004", 0.0),
+            ("  ", 0.0),
+            ("", 0.0),
+            ("3600", 3600.0),
+        ] {
+            assert_eq!(parse_offset(text), Some(seconds), "{text:?}");
+        }
+        for text in [
+            "abc", "inf", "nan", "1e3", "3601", "ms", "s", "1.2.3", "--1",
+        ] {
+            assert_eq!(parse_offset(text), None, "{text:?}");
+        }
+        assert!(parse_offset("-0.0001").unwrap().is_sign_positive(), "no -0");
+        // What the field shows reads back as itself.
+        for seconds in [0.0, 0.25, -1.5, 0.001, -3600.0] {
+            assert_eq!(parse_offset(&offset_text(seconds)), Some(seconds));
+        }
+        assert_eq!(offset_text(0.0), "0 s");
+        assert_eq!(offset_text(-1.5), "-1.5 s");
+        assert_eq!(offset_text(0.25), "+0.25 s");
     }
 }

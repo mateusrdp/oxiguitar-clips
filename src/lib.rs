@@ -132,8 +132,10 @@ impl Effect for ClipsPlugin {
                 None => Err("is kept relative to the score, which isn't saved".to_owned()),
             };
             match sound {
+                // The offset moves it off its rest, either way; before the
+                // song starts it is cut.
                 Ok(sound) => segments.push(sound::Segment {
-                    start: (b.start * f64::from(rate)).round() as i64,
+                    start: ((b.start + clip.offset) * f64::from(rate)).round() as i64,
                     sound,
                 }),
                 Err(why) => {
@@ -176,3 +178,166 @@ impl Processor for Playing {
 }
 
 oxiguitar_plugin::export_plugin!(ClipsPlugin);
+
+#[cfg(test)]
+mod missing_files {
+    use std::sync::Mutex;
+
+    use oxiguitar_plugin::api::message::{HostAnswer, HostRequest, PreparedTrack, TrackInfo};
+    use oxiguitar_plugin::{HostServices, InstrumentClass};
+
+    use super::*;
+
+    /// A host that keeps what it is told, with a score that was never saved.
+    #[derive(Default)]
+    struct Told(Mutex<Vec<String>>);
+
+    impl HostServices for Told {
+        fn request(&self, request: HostRequest<'_>) -> Result<HostAnswer<'static>, Error> {
+            match request {
+                HostRequest::Notify { level, text } => {
+                    assert!(matches!(level, Level::Warning), "{text}");
+                    self.0.lock().unwrap().push(text.to_string());
+                    Ok(HostAnswer::Done)
+                }
+                HostRequest::ScoreFile => Ok(HostAnswer::ScoreFile(None)),
+                _ => Ok(HostAnswer::Done),
+            }
+        }
+    }
+
+    fn beat(start: f64, clip: &clip::Clip) -> PlayedBeat {
+        PlayedBeat {
+            start,
+            end: start + 0.5,
+            staff: 0,
+            bar: 0,
+            voice: 0,
+            beat: 0,
+            ext: vec![BeatExt::Plugin {
+                plugin: ID.into(),
+                data: clip.to_text(),
+            }],
+        }
+    }
+
+    /// A clip whose file is gone, and one kept relative to a score that
+    /// was never saved, are named once in the footer, and the track plays
+    /// on without them: silence where they were.
+    #[test]
+    fn a_missing_file_is_named_and_the_track_plays_without_it() {
+        let told = Arc::new(Told::default());
+        let plugin = ClipsPlugin::start(Host::new(told.clone())).unwrap();
+        let gone = clip::Clip {
+            path: std::env::temp_dir()
+                .join("oxiguitar-clips-no-such-file.wav")
+                .to_string_lossy()
+                .into_owned(),
+            relative: false,
+            seconds: 1.0,
+            offset: 0.0,
+        };
+        let unsaved = clip::Clip {
+            path: "take.wav".into(),
+            relative: true,
+            seconds: 1.0,
+            offset: 0.0,
+        };
+        let prepare = PrepareEffect {
+            effect: "clips".into(),
+            rate: 48_000,
+            frames: 256,
+            track: PreparedTrack {
+                info: TrackInfo {
+                    index: 0,
+                    name: "Lead".into(),
+                    class: InstrumentClass::Fretted,
+                },
+                program: 27,
+                percussion: false,
+                tuning: vec![64, 59, 55, 50, 45, 40],
+                capo: 0,
+                settings: String::new(),
+            },
+        };
+        let beats = [beat(0.0, &gone), beat(1.0, &gone), beat(2.0, &unsaved)];
+        let mut playing = plugin.prepare_following(&prepare, &beats).unwrap();
+        let said = told.0.lock().unwrap().clone();
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].starts_with("Lead plays without its clip"),
+            "{said:?}"
+        );
+        assert!(
+            said[0].contains("oxiguitar-clips-no-such-file.wav"),
+            "{said:?}"
+        );
+        assert!(
+            said[0].contains("take.wav is kept relative to the score"),
+            "{said:?}"
+        );
+        assert_eq!(said[0].matches("no-such-file").count(), 1, "named once");
+        let (mut left, mut right) = (vec![0.0f32; 256], vec![0.0f32; 256]);
+        playing.process_at(&mut left, &mut right, 0.0, 1.0 / 48_000.0);
+        assert!(left.iter().chain(&right).all(|s| *s == 0.0));
+    }
+
+    /// An offset moves a clip off its rest: later, or earlier, cut where
+    /// the song starts.
+    #[test]
+    fn an_offset_plays_the_clip_later_or_earlier() {
+        let file =
+            std::env::temp_dir().join(format!("oxiguitar-clips-offset-{}.wav", std::process::id()));
+        // 0.1 s at 8 kHz: 800 frames of a ramp.
+        std::fs::write(&file, crate::decode::tests::wav(8000, 1, 800)).unwrap();
+        let clip = |offset: f64| clip::Clip {
+            path: file.to_string_lossy().into_owned(),
+            relative: false,
+            seconds: 0.1,
+            offset,
+        };
+        let plugin = ClipsPlugin::start(Host::new(Arc::new(Told::default()))).unwrap();
+        let prepare = PrepareEffect {
+            effect: "clips".into(),
+            rate: 8000,
+            frames: 256,
+            track: PreparedTrack {
+                info: TrackInfo {
+                    index: 0,
+                    name: "Lead".into(),
+                    class: InstrumentClass::Fretted,
+                },
+                program: 27,
+                percussion: false,
+                tuning: vec![64, 59, 55, 50, 45, 40],
+                capo: 0,
+                settings: String::new(),
+            },
+        };
+        // A rest at the start, 50 ms early; one at 1 s, half a second late.
+        let beats = [beat(0.0, &clip(-0.05)), beat(1.0, &clip(0.5))];
+        let mut playing = plugin.prepare_following(&prepare, &beats).unwrap();
+        let mut heard = Vec::new();
+        let (mut left, mut right) = (vec![0.0f32; 256], vec![0.0f32; 256]);
+        for call in 0..64 {
+            left.fill(0.0);
+            right.fill(0.0);
+            playing.process_at(
+                &mut left,
+                &mut right,
+                call as f64 * 256.0 / 8000.0,
+                1.0 / 8000.0,
+            );
+            heard.extend_from_slice(&left);
+        }
+        std::fs::remove_file(&file).ok();
+        // The early one: its second half, from the song's start.
+        assert!(heard[1..400].iter().any(|s| *s != 0.0));
+        assert!(heard[400..12_000].iter().all(|s| *s == 0.0));
+        // The late one: from 1.5 s, its first frame first.
+        let first = -50.0 * 100.0 / 32768.0;
+        assert!((heard[12_000] - first).abs() < 1e-4, "{}", heard[12_000]);
+        assert!(heard[12_000..12_800].iter().any(|s| *s != 0.0));
+        assert!(heard[12_800..].iter().all(|s| *s == 0.0));
+    }
+}

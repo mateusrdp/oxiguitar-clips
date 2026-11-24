@@ -4,7 +4,9 @@
 //! The clip on the page (interface 1.13): at its rest, a small speaker and
 //! the file's name, then a line for as long as the clip lasts, which
 //! OxiGuitar draws across beats, bars and systems to the point where the
-//! clip ends, with the score's tempo changes. Its hook marks the end.
+//! clip ends, with the score's tempo changes. Its hook marks the end. A
+//! clip with an offset sounds from its rest plus the offset: the line
+//! still starts at the rest and ends where the sound does.
 //!
 //! What can't play as it looks is laid in the warning red: a clip that
 //! runs into the next clip of its track, or past a jump in the playing
@@ -53,15 +55,21 @@ pub fn draw(places: &[DrawPlace], times: &DrawTimes) -> Vec<Drawn> {
         .enumerate()
         .filter_map(|(i, c)| {
             let (track, clip) = c.as_ref()?;
-            let warned = start(i).is_some_and(|from| {
+            // Where each clip of the track sounds, with its offset.
+            let sounds = |j: usize, c: &Clip| start(j).map(|s| s + c.offset);
+            let warned = sounds(i, clip).is_some_and(|from| {
                 let to = from + clip.seconds;
                 // Another clip of the track starts before this one ends.
                 let overlaps = clips.iter().enumerate().any(|(j, o)| {
                     j != i
-                        && o.as_ref().is_some_and(|(t, _)| t == track)
-                        && start(j).is_some_and(|s| s >= from && s < to && (s > from || j > i))
+                        && o.as_ref().is_some_and(|(t, c)| {
+                            t == track
+                                && sounds(j, c)
+                                    .is_some_and(|s| s >= from && s < to && (s > from || j > i))
+                        })
                 });
-                overlaps || crosses_a_jump(&times.bars, from, to)
+                // Before the song starts nothing plays.
+                overlaps || crosses_a_jump(&times.bars, from.max(0.0), to)
             });
             Some(drawn(i, clip, start(i).is_some(), warned))
         })
@@ -138,9 +146,10 @@ fn drawn(place: usize, clip: &Clip, played: bool, warned: bool) -> Drawn {
         width,
         height: HEIGHT,
         items,
-        run: played.then(|| DrawnRun {
+        // A clip over before its rest has no line.
+        run: (played && clip.ends() > 0.0).then(|| DrawnRun {
             seconds: clip
-                .seconds
+                .ends()
                 .min(oxiguitar_plugin::api::message::RUN_SECONDS_MAX),
             width: 0.12,
             paint: if warned { Paint::Warning } else { Paint::Ink },
@@ -191,6 +200,7 @@ mod tests {
             path: "audio/intro.wav".into(),
             relative: true,
             seconds,
+            offset: 0.0,
         }
     }
 
@@ -271,11 +281,52 @@ mod tests {
     }
 
     #[test]
+    fn an_offset_moves_where_the_line_ends_and_what_is_red() {
+        let times = DrawTimes {
+            starts: vec![vec![0.0], vec![4.0]],
+            bars: bars(&[0, 1, 2, 3, 4, 5]),
+        };
+        let at = |first: &Clip, second: &Clip| {
+            draw(
+                &[place(0, 0, Some(first)), place(0, 2, Some(second))],
+                &times,
+            )
+        };
+        let red = |d: &Drawn| d.run.as_ref().unwrap().paint == Paint::Warning;
+        let three = clip(3.0);
+        // Later: the line runs to where the sound ends, into the next clip.
+        let later = Clip {
+            offset: 1.5,
+            ..three.clone()
+        };
+        let drawn = at(&later, &three);
+        assert_eq!(drawn[0].run.as_ref().unwrap().seconds, 4.5);
+        assert!(red(&drawn[0]) && !red(&drawn[1]));
+        // The next one earlier: the same clash, from the other side.
+        let earlier = Clip {
+            offset: -1.5,
+            ..three.clone()
+        };
+        let drawn = at(&three, &earlier);
+        assert_eq!(drawn[1].run.as_ref().unwrap().seconds, 1.5);
+        assert!(red(&drawn[0]) && !red(&drawn[1]));
+        // Both moved apart: nothing clashes.
+        assert!(!at(&earlier, &later).iter().any(red));
+        // Over before its rest: no line.
+        let gone = Clip {
+            offset: -3.0,
+            ..three
+        };
+        assert!(at(&gone, &clip(1.0))[0].run.is_none());
+    }
+
+    #[test]
     fn a_long_name_is_cut_and_the_box_keeps_the_limits() {
         let c = Clip {
             path: format!("/{}.wav", "a-very-long-name-".repeat(10)),
             relative: false,
             seconds: 1.0e9,
+            offset: 0.0,
         };
         let d = &draw(
             &[place(0, 0, Some(&c))],
