@@ -4,6 +4,8 @@ All notable changes to the audio clips plugin. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-24
+
 ### Added
 
 - **An offset for each clip** (#8): the Audio Clip dialog's **Offset** field, under the path, starts the clip a little after its rest, or before it with a minus, to line up a recording without editing the file. Type seconds (`0.25`, `-1.5 s`) or milliseconds (`250 ms`) and press Enter; it is zero unless set, kept to the millisecond, at most an hour either way. A clip moved before the song's start is cut there. The line on the page still starts at the rest and ends where the sound does, and the red warning goes by where the clip sounds. Scores saved before keep their clips as they were.
