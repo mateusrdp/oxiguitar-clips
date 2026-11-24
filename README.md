@@ -18,6 +18,9 @@ In plain words: everything else in OxiGuitar is notes that a plugin turns into s
   score**, to move or share a folder holding the score, its `.oxg` file and
   the clips together (a zip, say); or **absolute**, to keep the clips where
   you work on them and move the score anywhere.
+- **Its offset**, in the dialog under the path: start the clip a little
+  after its rest, or before it with a minus (`0.25`, `-1.5 s`, `250 ms`),
+  to line up a recording without editing it. Zero unless set.
 - **On the page**: a speaker and the file's name at the rest, then a line
   to the beat where the clip ends, across bars and systems, with the
   score's tempo changes. A clip that runs into the next clip of its track,

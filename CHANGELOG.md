@@ -6,6 +6,7 @@ All notable changes to the audio clips plugin. The format follows [Keep a Change
 
 ### Added
 
+- **An offset for each clip** (#8): the Audio Clip dialog's **Offset** field, under the path, starts the clip a little after its rest, or before it with a minus, to line up a recording without editing the file. Type seconds (`0.25`, `-1.5 s`) or milliseconds (`250 ms`) and press Enter; it is zero unless set, kept to the millisecond, at most an hour either way. A clip moved before the song's start is cut there. The line on the page still starts at the rest and ends where the sound does, and the red warning goes by where the clip sounds. Scores saved before keep their clips as they were.
 - **Every test with one command** (mateusrdp/oxiguitar#273): `scripts/test-all.py` builds and runs all of this repository's tests, and tests the plugin against the newest OxiGuitar release, with a progress bar, a summary to paste into an issue and a log to diagnose from. The manual has a Features page naming the tests of every feature (CI checks it) and a Testing page.
 
 ### Changed
