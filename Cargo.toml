@@ -24,7 +24,9 @@ oxp = []
 # (mateusrdp/oxiguitar#321: drawings that run on in time, effects off the
 # chord voice, the score's file), until a release tags it. Nothing of
 # OxiGuitar's is on crates.io.
-oxiguitar-plugin = { git = "https://github.com/mateusrdp/oxiguitar", tag = "v0.21.4" }
+# Now at the commit of mateusrdp/oxiguitar#348 (plugin files are tar
+# archives, #347), until a release tags it.
+oxiguitar-plugin = { git = "https://github.com/mateusrdp/oxiguitar", rev = "b88431f763df71c66fe4f54f8ee4a5d0663dbec1" }
 # Reading the files oxiguitar-export writes: WAV, FLAC and MP3 through
 # Symphonia (MPL-2.0), Opus through opus-pure (BSD-3-Clause), the pure-Rust
 # Opus codec the export plugin writes with.
@@ -48,8 +50,8 @@ rusty_flac = "0.5.1"
 rusty_mp3 = "1.0.6"
 # The contract suite and the real-time checks (tests/contract.rs) run the
 # built .oxp file through OxiGuitar's own plugin host.
-oxiguitar-plugin-test = { git = "https://github.com/mateusrdp/oxiguitar", tag = "v0.21.4" }
-oxiguitar-host = { git = "https://github.com/mateusrdp/oxiguitar", tag = "v0.21.4" }
+oxiguitar-plugin-test = { git = "https://github.com/mateusrdp/oxiguitar", rev = "b88431f763df71c66fe4f54f8ee4a5d0663dbec1" }
+oxiguitar-host = { git = "https://github.com/mateusrdp/oxiguitar", rev = "b88431f763df71c66fe4f54f8ee4a5d0663dbec1" }
 
 # Plugins deny `unsafe` rather than forbid it: `export_plugin!` allows it on
 # the two attributes it generates, and nowhere else.
