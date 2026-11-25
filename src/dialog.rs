@@ -635,7 +635,7 @@ mod tests {
             .find(|c| c.name == "ClipWindow")
             .unwrap();
         for (name, _) in properties(&Shared::default()) {
-            assert!(c.properties.iter().any(|p| *p == name), "{name}");
+            assert!(c.properties.contains(&name), "{name}");
         }
         for name in [
             "choose",
