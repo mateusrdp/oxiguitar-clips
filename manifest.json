@@ -1,5 +1,5 @@
 {
-  "interface": "1.13",
+  "interface": "1.16",
   "id": "oxiguitar.clips",
   "name": "Audio clips",
   "version": "0.2.0",
@@ -14,7 +14,8 @@
   "tools": [
     { "id": "clip", "name": "Audio Clip…", "description": "Plays an audio file from the rest at the caret: choose the file, or change or remove the rest's clip.", "palette": { "text": "Clip" } }
   ],
-  "tabs": [
-    { "id": "clip", "title": "Audio Clip", "area": "dialog" }
+  "ui": "ui/clips.slint",
+  "views": [
+    { "id": "clip", "component": "ClipWindow", "place": "window" }
   ]
 }

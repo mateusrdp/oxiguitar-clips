@@ -4,6 +4,10 @@ All notable changes to the audio clips plugin. The format follows [Keep a Change
 
 ## [Unreleased]
 
+### Changed
+
+- **The clip window is a Slint view** (mateusrdp/oxiguitar#346): `ui/clips.slint` draws it, with the same file, path, offset and Remove as before and its own OK and Cancel; the plugin no longer uses OxiGuitar's dialog tabs, which OxiGuitar 1.0 retires. Needs OxiGuitar 0.23.0 or later (interface 1.16).
+
 ## [0.2.0] - 2026-11-25
 
 ### Changed
