@@ -46,7 +46,7 @@ Released builds come with OxiGuitar's packages and Flatpak repository
 (`oxiguitar-clips`, `io.github.mateusrdp.OxiGuitar.Plugin.clips`), or as
 `clips.oxp` files on this repository's releases: see
 the [manual's install page](https://mateusrdp.github.io/oxiguitar-clips/install.html).
-It needs OxiGuitar 0.21.4 or later (plugin interface 1.13).
+It needs OxiGuitar 0.23.0 or later (plugin interface 1.16).
 
 ## Building
 

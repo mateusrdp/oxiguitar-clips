@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- OxiGuitar 0.21.4 or later (plugin interface 1.13). See [the OxiGuitar manual](https://mateusrdp.github.io/oxiguitar/).
+- OxiGuitar 0.23.0 or later (plugin interface 1.16). See [the OxiGuitar manual](https://mateusrdp.github.io/oxiguitar/).
 - A track with an instrument, since the clip is heard through its track. The MIDI plugin plays every track. See [its manual](https://mateusrdp.github.io/oxiguitar-midi/).
 - Windows, macOS or Linux.
 
