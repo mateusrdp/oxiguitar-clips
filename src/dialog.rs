@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mateus Rocha de Paula and the OxiGuitar contributors
 
-//! The palette's Audio Clip tool and the dialog it opens (interface 1.8:
-//! palette tools and dialogs are a plugin's own). The tool, or a click on
+//! The palette's Audio Clip tool and the window it opens (`ui/clips.slint`,
+//! plugin interface 1.16: palette tools and their windows are a plugin's
+//! own). The tool, or a click on
 //! a clip on the page, opens the dialog for the rest at the caret: choose
 //! a file (in the system's file dialog, the plugin's own), keep its path
 //! relative to the score or absolute, start it a little later or earlier
@@ -15,7 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use oxiguitar_plugin::score::BeatKind;
 use oxiguitar_plugin::score2::{Beat2, BeatExt, Score2};
 use oxiguitar_plugin::serde_json::Value;
-use oxiguitar_plugin::{Error, Host, Row, Selection2, Tab, TabContent, TabEvent, Tool, Widget};
+use oxiguitar_plugin::{Error, Host, Selection2, Tool, Value as View};
 
 use crate::clip::{Clip, OFFSET_MAX};
 use crate::decode;
@@ -194,7 +195,10 @@ pub fn open(host: &Host, shared: &Shared) -> Result<String, Error> {
         offset,
         ..Editing::default()
     });
-    if let Err(e) = host.open_dialog(DIALOG) {
+    if let Err(e) = host
+        .set_view(DIALOG, properties(shared))
+        .and_then(|()| host.show_view(DIALOG))
+    {
         *shared.editing() = None;
         return Err(e);
     }
@@ -223,17 +227,6 @@ pub struct Dialog {
     pub host: Host,
     /// What it shares with the tool.
     pub shared: Arc<Shared>,
-}
-
-fn label(text: &str, muted: bool) -> Widget {
-    Widget::Label {
-        text: text.into(),
-        muted,
-    }
-}
-
-fn row(widgets: Vec<Widget>) -> Row {
-    Row { widgets }
 }
 
 /// The offset typed into the dialog, in seconds: a number of seconds
@@ -284,101 +277,67 @@ fn length(seconds: f64) -> String {
     }
 }
 
-impl Tab for Dialog {
-    fn content(&self) -> TabContent {
-        let editing = self.shared.editing();
-        let Some(e) = editing.as_ref() else {
-            return TabContent {
-                rows: vec![row(vec![label(
-                    "Pick the Audio Clip tool in the palette, on a rest.",
-                    true,
-                )])],
-            };
-        };
-        let (name, seconds) = match (&e.chosen, &e.had, e.removed) {
-            (_, _, true) => (None, None),
-            (Some((file, s)), _, _) => (
-                file.file_name().map(|n| n.to_string_lossy().into_owned()),
-                Some(*s),
-            ),
-            (None, Some(c), _) => (Some(c.name().to_owned()), Some(c.seconds)),
-            (None, None, _) => (None, None),
-        };
-        let has = name.is_some();
-        let mut rows = vec![
-            row(vec![
-                label("File", false),
-                label(name.as_deref().unwrap_or("None"), !has),
-            ]),
-            row(vec![
-                Widget::Button {
-                    id: "choose".into(),
-                    text: "Choose File…".into(),
-                    enabled: true,
-                },
-                Widget::Button {
-                    id: "remove".into(),
-                    text: "Remove Clip".into(),
-                    enabled: has,
-                },
-            ]),
-        ];
-        if let Some(s) = seconds {
-            rows.push(row(vec![label("Length", false), label(&length(s), true)]));
-        }
-        rows.push(row(vec![
-            label("Path", false),
-            Widget::Choice {
-                id: "paths".into(),
-                options: PATHS.iter().map(|p| (*p).to_owned()).collect(),
-                selected: u32::from(!e.relative),
-                enabled: true,
-            },
-        ]));
-        rows.push(row(vec![label(
-            if e.relative {
+/// The window's properties for what it is open for.
+pub fn properties(shared: &Shared) -> Vec<(String, View)> {
+    let editing = shared.editing();
+    let e = editing.clone().unwrap_or_default();
+    let (name, seconds) = match (&e.chosen, &e.had, e.removed) {
+        (_, _, true) => (None, None),
+        (Some((file, s)), _, _) => (
+            file.file_name().map(|n| n.to_string_lossy().into_owned()),
+            Some(*s),
+        ),
+        (None, Some(c), _) => (Some(c.name().to_owned()), Some(c.seconds)),
+        (None, None, _) => (None, None),
+    };
+    let text = |s: &str| View::String(s.into());
+    vec![
+        ("file".into(), text(name.as_deref().unwrap_or("None"))),
+        ("has-file".into(), View::Bool(name.is_some())),
+        (
+            "length".into(),
+            text(&seconds.map(length).unwrap_or_default()),
+        ),
+        (
+            "paths".into(),
+            View::List(PATHS.iter().map(|p| text(p)).collect()),
+        ),
+        (
+            "path".into(),
+            View::Number(f64::from(u8::from(!e.relative))),
+        ),
+        (
+            "path-note".into(),
+            text(if e.relative {
                 "Kept from the score's folder: move or share that folder with the score and its .oxg file."
             } else {
                 "Kept as it is: the score can move, the file stays where it is."
-            },
-            true,
-        )]));
-        rows.push(row(vec![
-            label("Offset", false),
-            Widget::Field {
-                id: "offset".into(),
-                text: offset_text(e.offset),
-                placeholder: "0 s".into(),
-                enabled: has,
-            },
-        ]));
-        rows.push(row(vec![label(
-            "Starts the clip this much after its rest, or before it with a minus: 0.25, -1.5 s, 250 ms. Press Enter to set it.",
-            true,
-        )]));
-        if let Some(p) = &e.problem {
-            rows.push(row(vec![label(p, false)]));
-        }
-        rows.push(row(vec![label(
-            "It plays from this rest for as long as it lasts, through the track's volume, pan, mute and solo.",
-            true,
-        )]));
-        TabContent { rows }
-    }
+            }),
+        ),
+        ("offset".into(), text(&offset_text(e.offset))),
+        (
+            "problem".into(),
+            text(e.problem.as_deref().unwrap_or_default()),
+        ),
+    ]
+}
 
-    fn on(&self, widget: &str, event: TabEvent) -> Result<(), Error> {
-        match (widget, event) {
-            ("choose", TabEvent::Clicked) => self.choose(),
-            ("remove", TabEvent::Clicked) => {
+impl Dialog {
+    /// The window's callback `callback` with `args` (but OK and Cancel,
+    /// which [`Dialog::finish`] takes).
+    pub fn on(&self, callback: &str, args: &[View]) {
+        match (callback, args.first()) {
+            ("choose", _) => self.choose(),
+            ("remove", _) => {
                 if let Some(e) = self.shared.editing().as_mut() {
                     e.chosen = None;
                     e.removed = true;
                     e.problem = None;
                 }
             }
-            ("offset", TabEvent::Edited(text)) => {
+            ("offset-edited", Some(View::String(text))) => {
                 if let Some(e) = self.shared.editing().as_mut() {
-                    match parse_offset(&text) {
+                    match parse_offset(text) {
                         Some(offset) => {
                             e.offset = offset;
                             e.problem = None;
@@ -392,17 +351,18 @@ impl Tab for Dialog {
                     }
                 }
             }
-            ("paths", TabEvent::Chosen(i)) => {
+            ("path-chosen", Some(View::Number(i))) => {
                 if let Some(e) = self.shared.editing().as_mut() {
-                    e.relative = i == 0;
+                    e.relative = *i == 0.0;
                 }
             }
             _ => {}
         }
-        Ok(())
     }
 
-    fn closed(&self, ok: bool) -> Result<(), Error> {
+    /// OK writes the clip on the rest, as one change the user can undo;
+    /// Cancel, or closing the window, forgets it.
+    pub fn finish(&self, ok: bool) -> Result<(), Error> {
         let Some(e) = self.shared.editing().take() else {
             return Ok(());
         };
@@ -466,9 +426,7 @@ impl Tab for Dialog {
         };
         self.host.apply(revision, name, score)
     }
-}
 
-impl Dialog {
     /// The system's file dialog, then the file read to know its length (and
     /// that it can be played).
     fn choose(&self) {
@@ -614,5 +572,80 @@ mod tests {
         assert_eq!(offset_text(0.0), "0 s");
         assert_eq!(offset_text(-1.5), "-1.5 s");
         assert_eq!(offset_text(0.25), "+0.25 s");
+    }
+
+    fn get<'a>(p: &'a [(String, View)], name: &str) -> &'a View {
+        &p.iter().find(|(n, _)| n == name).unwrap().1
+    }
+
+    /// The window shows what it is open for and changes it: remove, the
+    /// offset (or why it isn't one), how the path is kept.
+    #[test]
+    fn the_window_shows_and_changes_the_clip() {
+        let shared = Arc::new(Shared::default());
+        *shared.editing() = Some(Editing {
+            had: Some(Clip {
+                path: "take.wav".into(),
+                relative: true,
+                seconds: 75.0,
+                offset: 0.0,
+            }),
+            relative: true,
+            ..Editing::default()
+        });
+        let dialog = Dialog {
+            host: Host::detached(),
+            shared: shared.clone(),
+        };
+        let p = properties(&shared);
+        assert_eq!(get(&p, "file"), &View::String("take.wav".into()));
+        assert_eq!(get(&p, "length"), &View::String("1:15.0".into()));
+        assert_eq!(get(&p, "path"), &View::Number(0.0));
+        dialog.on("offset-edited", &[View::String("250 ms".into())]);
+        assert_eq!(
+            get(&properties(&shared), "offset"),
+            &View::String("+0.25 s".into())
+        );
+        dialog.on("offset-edited", &[View::String("soon".into())]);
+        assert!(
+            matches!(get(&properties(&shared), "problem"), View::String(p) if p.contains("isn't an offset"))
+        );
+        dialog.on("path-chosen", &[View::Number(1.0)]);
+        assert!(
+            matches!(get(&properties(&shared), "path-note"), View::String(n) if n.starts_with("Kept as it is"))
+        );
+        dialog.on("remove", &[]);
+        let p = properties(&shared);
+        assert_eq!(get(&p, "has-file"), &View::Bool(false));
+        assert_eq!(get(&p, "length"), &View::String(String::new()));
+        // Cancel forgets it all.
+        dialog.finish(false).unwrap();
+        assert!(shared.editing().is_none());
+    }
+
+    /// The file compiles as OxiGuitar compiles it, with every property and
+    /// callback the window uses.
+    #[test]
+    fn the_slint_file_has_what_the_window_sets_and_hears() {
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/clips.slint");
+        let compiled = oxiguitar_plugin_test::compile_ui_file(&file).unwrap();
+        let c = compiled
+            .components
+            .iter()
+            .find(|c| c.name == "ClipWindow")
+            .unwrap();
+        for (name, _) in properties(&Shared::default()) {
+            assert!(c.properties.iter().any(|p| *p == name), "{name}");
+        }
+        for name in [
+            "choose",
+            "remove",
+            "path-chosen",
+            "offset-edited",
+            "ok",
+            "cancel",
+        ] {
+            assert!(c.callbacks.iter().any(|p| p == name), "{name}");
+        }
     }
 }

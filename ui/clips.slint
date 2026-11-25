@@ -1,0 +1,132 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Mateus Rocha de Paula and the OxiGuitar contributors
+
+// The Audio Clip window (plugin interface 1.16): the file, Choose File...
+// and Remove Clip, how the path is kept, the offset, then OK and Cancel.
+// The plugin sets every property (src/dialog.rs) and hears what the user
+// does; OK writes the clip on the rest.
+
+import { Button, ComboBox, LineEdit } from "std-widgets.slint";
+
+export component ClipWindow inherits Window {
+    title: "Audio Clip";
+    preferred-width: 520px;
+    // The file's name, or "None".
+    in property <string> file;
+    in property <bool> has-file;
+    // Its length, empty when none is known.
+    in property <string> length;
+    in property <[string]> paths;
+    in-out property <int> path;
+    in property <string> path-note;
+    in-out property <string> offset;
+    // A sentence about what went wrong, empty when nothing did.
+    in property <string> problem;
+    callback choose();
+    callback remove();
+    callback path-chosen(int);
+    callback offset-edited(string);
+    callback ok();
+    callback cancel();
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: "File";
+                min-width: 60px;
+                vertical-alignment: center;
+            }
+            Text {
+                text: root.file;
+                vertical-alignment: center;
+                opacity: root.has-file ? 1 : 0.7;
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Button {
+                text: "Choose File…";
+                clicked => { root.choose(); }
+            }
+            Button {
+                text: "Remove Clip";
+                enabled: root.has-file;
+                clicked => { root.remove(); }
+            }
+        }
+        if root.length != "": HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: "Length";
+                min-width: 60px;
+            }
+            Text {
+                text: root.length;
+                opacity: 0.7;
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: "Path";
+                min-width: 60px;
+                vertical-alignment: center;
+            }
+            ComboBox {
+                model: root.paths;
+                current-index <=> root.path;
+                selected => { root.path-chosen(self.current-index); }
+            }
+        }
+        Text {
+            text: root.path-note;
+            wrap: word-wrap;
+            opacity: 0.7;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: "Offset";
+                min-width: 60px;
+                vertical-alignment: center;
+            }
+            LineEdit {
+                text <=> root.offset;
+                placeholder-text: "0 s";
+                enabled: root.has-file;
+                accepted(t) => { root.offset-edited(t); }
+            }
+        }
+        Text {
+            text: "Starts the clip this much after its rest, or before it with a minus: 0.25, -1.5 s, 250 ms. Press Enter to set it.";
+            wrap: word-wrap;
+            opacity: 0.7;
+        }
+        if root.problem != "": Text {
+            text: root.problem;
+            wrap: word-wrap;
+        }
+        Text {
+            text: "It plays from this rest for as long as it lasts, through the track's volume, pan, mute and solo.";
+            wrap: word-wrap;
+            opacity: 0.7;
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Button {
+                text: "OK";
+                primary: true;
+                clicked => { root.ok(); }
+            }
+            Button {
+                text: "Cancel";
+                clicked => { root.cancel(); }
+            }
+        }
+    }
+}

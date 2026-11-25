@@ -27,7 +27,8 @@ use oxiguitar_plugin::audio::{PlayedBeat, PrepareEffect};
 use oxiguitar_plugin::display::Point;
 use oxiguitar_plugin::score2::BeatExt;
 use oxiguitar_plugin::{
-    DrawPlace, DrawTimes, Drawer, Drawn, Effect, Error, Host, Level, Plugin, Processor, Tab, Tool,
+    DrawPlace, DrawTimes, Drawer, Drawn, Effect, Error, Host, Level, Plugin, Processor, Tool,
+    TrackView, Ui, Value as View,
 };
 
 pub mod clip;
@@ -79,12 +80,47 @@ impl Plugin for ClipsPlugin {
         (id == TOOL).then_some(&self.tool as &dyn Tool)
     }
 
-    fn tab(&self, id: &str) -> Option<&dyn Tab> {
-        (id == dialog::DIALOG).then_some(&self.dialog as &dyn Tab)
+    fn ui(&self) -> Option<&dyn Ui> {
+        Some(self)
     }
 
     fn drawer(&self) -> Option<&dyn Drawer> {
         Some(self)
+    }
+}
+
+/// The Audio Clip window (`ui/clips.slint`).
+impl Ui for ClipsPlugin {
+    fn shown(&self, view: &str, _track: Option<&TrackView>) -> Result<(), Error> {
+        if view != dialog::DIALOG {
+            return Ok(());
+        }
+        self.host.set_view(view, dialog::properties(&self.shared))
+    }
+
+    fn callback(&self, view: &str, callback: &str, args: Vec<View>) -> Result<(), Error> {
+        if view != dialog::DIALOG {
+            return Ok(());
+        }
+        match callback {
+            "ok" | "cancel" => {
+                let done = self.dialog.finish(callback == "ok");
+                self.host.close_view(view)?;
+                done
+            }
+            _ => {
+                self.dialog.on(callback, &args);
+                self.host.set_view(view, dialog::properties(&self.shared))
+            }
+        }
+    }
+
+    /// Closing the window forgets what it holds, as Cancel does.
+    fn closed(&self, view: &str, _accepted: bool) -> Result<(), Error> {
+        if view != dialog::DIALOG {
+            return Ok(());
+        }
+        self.dialog.finish(false)
     }
 }
 
