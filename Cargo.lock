@@ -994,9 +994,9 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "rusty_flac"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e51dfecb0b6c09f8c11adb98fa5dd8e589098ab80aa92a2e56e858441ed0ea6"
+checksum = "a8772fd8e55385dc7104fa6fc62b7fd11905bb596c8ee9e76b8236f2e3cd5a0d"
 
 [[package]]
 name = "rusty_mp3"
