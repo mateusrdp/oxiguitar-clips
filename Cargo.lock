@@ -1277,18 +1277,18 @@ dependencies = [
 
 [[package]]
 name = "timestretch"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad484075af6caf97e09f3f869bed42c99ff4fea501f6df6ad65d5bb8c7186808"
+checksum = "673a71577e4d5d7975f884d1a4722ac80d287de3ab0c3129ede7db36bde7496f"
 dependencies = [
  "timestretch-core",
 ]
 
 [[package]]
 name = "timestretch-core"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa8cb1cae3fd3788a7a9e704dd079d7dc56b00a8b2d0688e9be94130ebcbe1aa"
+checksum = "01ee7084b5f066fff156d695a0fdc9d3b714b743f332e02814acb6645af88414"
 dependencies = [
  "rustfft",
 ]
